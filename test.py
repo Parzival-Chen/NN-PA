@@ -1,85 +1,46 @@
 import torch
-import torch.nn as nn
-from LearnerNN import LearnerNN
-from PAModel import PAModel
 import random
-
+from LearnerNN import LearnerNN
+from PAModel import PAModel, combine_models
+from atomic_trainer import train_atomic_model, build_model_from_formula
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Current Device: {device}")
+def generate_random_formula(vars, max_constant=50, max_depth=5):
+    if max_depth == 0:
+        # 叶子节点：生成一个原子不等式
+        num_vars_in_atom = random.randint(2, len(vars))  # 随机使用2到所有变量
+        chosen_vars = random.sample(vars, num_vars_in_atom)
 
-from atomic_trainer import train_atomic_model
-from PAModel import combine_and_model
+        terms = []
+        for var in chosen_vars:
+            coeff = random.randint(1, 10)
+            terms.append(f"{coeff}*{var}")
 
-M1, _ = train_atomic_model("2*x + 3*y - 5*z < 1", ['x', 'y', 'z'])
-M2, _ = train_atomic_model("2*y + z -w < 3", ['y', 'z', 'w'])
-M3 = combine_and_model(M1, M2, var_order=['x', 'y', 'z', 'w'])
-M3.train(epochs=100)
+        lhs = " + ".join(terms)
+        constant = random.randint(0, max_constant)
+        return f"{lhs} < {constant}"
 
-# 第一轮评估
-print("\n 正在评估组合模型 M3 的预测准确率...")
-correct = 0
-false_pos, false_neg = [], []
-total = 100
-test_samples = [[random.randint(0, 10) for _ in M3.vars] for _ in range(total)]
-
-for x in test_samples:
-    pred = M3.predict(x)
-    truth = M3.verify(x)
-    if pred == truth:
-        correct += 1
+    # 内部节点：随机选逻辑操作符
+    op = random.choice(["And", "Or", "Not"])
+    if op == "Not":
+        subformula = generate_random_formula(vars, max_constant, max_depth-1)
+        return f"Not({subformula})"
     else:
-        print(f" 错误样例: 输入={x}, 预测={pred}, 实际={truth}")
-        if truth:
-            false_neg.append(x)
-        else:
-            false_pos.append(x)
+        left = generate_random_formula(vars, max_constant, max_depth-1)
+        right = generate_random_formula(vars, max_constant, max_depth-1)
+        return f"{op}({left}, {right})"
 
-acc = correct / total
-print(f"\n 第一轮 M3 测试集准确率: {acc:.2%}")
+# =================== 这里开始测试 ===================
 
-# 加入反例重新训练
-print("\n 将反例加入训练集并重新训练 M3 ...")
-M3.update(false_neg, false_pos)
+all_vars = ["x", "y", "z", "w"]
 
-# 第二轮评估
-print("\n 第二轮测试开始 ...")
-correct2 = 0
-false_pos2, false_neg2 = [], []
-test_samples2 = [[random.randint(0, 10) for _ in M3.vars] for _ in range(total)]
-
-for x in test_samples2:
-    pred = M3.predict(x)
-    truth = M3.verify(x)
-    if pred == truth:
-        correct2 += 1
-    else:
-        print(f" 第二轮错误样例: 输入={x}, 预测={pred}, 实际={truth}")
-        if truth:
-            false_neg2.append(x)
-        else:
-            false_pos2.append(x)
-
-acc2 = correct2 / total
-print(f"\n 第二轮 M3 测试集准确率: {acc2:.2%}")
-
-# 加入第二轮反例继续训练
-print("\n 将第二轮反例加入训练集并再次训练 M3 ...")
-M3.update(false_neg2, false_pos2)
-
-# 第三轮评估
-print("\n 第三轮测试开始 ...")
-correct3 = 0
-test_samples3 = [[random.randint(0, 10) for _ in M3.vars] for _ in range(total)]
-
-for x in test_samples3:
-    pred = M3.predict(x)
-    truth = M3.verify(x)
-    if pred == truth:
-        correct3 += 1
-    else:
-        print(f" 第三轮错误样例: 输入={x}, 预测={pred}, 实际={truth}")
-
-acc3 = correct3 / total
-print(f"\n 第三轮 M3 测试集准确率: {acc3:.2%}")
-
-# TODO: 在LearnerNN.py里添加一个逻辑与方法, 接收两个网络输出逻辑与网络。初步想法：ensemble knowledge distillation
+formula = generate_random_formula(all_vars, max_constant=500, max_depth=3)
+print(f"\n 随机生成公式: {formula}\n")
+final_model = build_model_from_formula(
+    formula,
+    all_vars,
+    initial_num_samples=100,
+    retrain_num_samples=100,
+    acc_threshold=0.9,
+    max_retrain_rounds=10
+)
