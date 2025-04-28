@@ -34,7 +34,7 @@ def generate_random_formula(vars, max_constant=50, max_depth=5):
 
 all_vars = ["x", "y", "z", "w"]
 
-formula = generate_random_formula(all_vars, max_constant=500, max_depth=3)
+formula = generate_random_formula(all_vars, max_constant=500, max_depth=4)
 print(f"\n 随机生成公式: {formula}\n")
 final_model = build_model_from_formula(
     formula,

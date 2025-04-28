@@ -3,8 +3,9 @@ import torch.nn as nn
 import random
 from z3 import *
 class AlwaysTrueModel(nn.Module):
-    def __init__(self):
+    def __init__(self, device=torch.device('cpu')):
         super().__init__()
+        self._target_device = device
 
     def forward(self, x):
         batch_size = x.shape[0]
@@ -14,8 +15,9 @@ class AlwaysTrueModel(nn.Module):
         return True
 
 class AlwaysFalseModel(nn.Module):
-    def __init__(self):
+    def __init__(self, device=torch.device('cpu')):
         super().__init__()
+        self._target_device = device
 
     def forward(self, x):
         batch_size = x.shape[0]
@@ -23,6 +25,7 @@ class AlwaysFalseModel(nn.Module):
 
     def predict(self, inputs):
         return False
+
 
 class PAModel:
     def __init__(self, vars, formula_str, model, pos_data=None, neg_data=None):
@@ -261,6 +264,15 @@ class NotNetwork(nn.Module):
 
 
 def combine_models(M1: PAModel, M2: PAModel = None, var_order: list[str] = None, num_samples=100, logic_type="and") -> PAModel:
+    def get_device_safe(model):
+        try:
+            return next(model.parameters()).device
+        except StopIteration:
+            if hasattr(model, '_target_device'):
+                return model._target_device
+            else:
+                return torch.device('cpu')
+
     def sample_data(z3_formula, z3_vars, var_order, num_samples, logic_type_name):
         pos, neg = [], []
         attempts = 0
@@ -337,7 +349,8 @@ def combine_models(M1: PAModel, M2: PAModel = None, var_order: list[str] = None,
         z3_vars = {v: Int(v) for v in var_order}
         z3_formula = And(M1.z3_formula, M2.z3_formula)
         combined_formula_str = f"And({M1.formula_str}, {M2.formula_str})"
-        model = AndNetwork(M1, M2, var_order).to(next(M1.model.parameters()).device)
+        model = AndNetwork(M1, M2, var_order).to(get_device_safe(M1.model))
+
 
         sample_result = sample_data(z3_formula, z3_vars, var_order, num_samples, "And")
         handled = handle_sample_result(sample_result, var_order, combined_formula_str)
@@ -352,7 +365,8 @@ def combine_models(M1: PAModel, M2: PAModel = None, var_order: list[str] = None,
         z3_vars = {v: Int(v) for v in var_order}
         z3_formula = Or(M1.z3_formula, M2.z3_formula)
         combined_formula_str = f"Or({M1.formula_str}, {M2.formula_str})"
-        model = OrNetwork(M1, M2, var_order).to(next(M1.model.parameters()).device)
+        model = OrNetwork(M1, M2, var_order).to(get_device_safe(M1.model))
+
 
         sample_result = sample_data(z3_formula, z3_vars, var_order, num_samples, "Or")
         handled = handle_sample_result(sample_result, var_order, combined_formula_str)
@@ -367,8 +381,7 @@ def combine_models(M1: PAModel, M2: PAModel = None, var_order: list[str] = None,
         z3_vars = {v: Int(v) for v in var_order}
         z3_formula = Not(M1.z3_formula)
         combined_formula_str = f"Not({M1.formula_str})"
-        model = NotNetwork(M1, var_order).to(next(M1.model.parameters()).device)
-
+        model = NotNetwork(M1, var_order).to(get_device_safe(M1.model))
         sample_result = sample_data(z3_formula, z3_vars, var_order, num_samples, "Not")
         handled = handle_sample_result(sample_result, var_order, combined_formula_str)
         if isinstance(handled, PAModel):
